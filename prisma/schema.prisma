@@ -1,0 +1,96 @@
+// prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ===== NEXTAUTH REQUIRED MODELS =====
+
+model Account {
+  id                String  @id @default(uuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(uuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ===== YOUR EXISTING USER MODEL (UPDATED) =====
+
+model User {
+  id            String      @id @default(uuid())
+  name          String
+  email         String      @unique
+  password      String?     // Now optional (OAuth users don't have password)
+  emailVerified DateTime?   // For NextAuth
+  image         String?     // For OAuth profile pictures
+  createdAt     DateTime    @default(now())
+  
+  // Relations
+  portfolios Portfolio[]
+  accounts   Account[]     // For OAuth
+  sessions   Session[]     // For NextAuth sessions
+
+  @@index([email])
+}
+
+
+model Portfolio {
+  id          String       @id @default(uuid())
+  name        String
+  userId      String
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  investments Investment[]
+
+  @@index([userId])
+}
+
+model Investment {
+  id              String    @id @default(uuid())
+  symbol          String
+  assetType       String
+  transactionType String
+  shares          Decimal
+  purchasePrice   Decimal   @map("purchase_price")
+  purchaseDate    DateTime  @default(now()) @map("purchase_date")
+  portfolioId     String    @map("portfolio_id")
+  portfolio       Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+
+  @@index([portfolioId])
+  @@map("investments")
+}
