@@ -12,14 +12,40 @@ export interface CryptoQuote {
   volume: number;
 }
 
-export async function getCryptoPrice(symbol: string): Promise<CryptoQuote | null> {
+// Simple in-memory cache: symbol -> { price, timestamp }
+const priceCache: { [key: string]: { data: CryptoQuote; timestamp: number } } = {};
+const CACHE_DURATION = 60 * 1000; // 1 minute
+
+export async function getCryptoPrices(symbols: string[]): Promise<{ [symbol: string]: CryptoQuote | null }> {
+  const uniqueSymbols = [...new Set(symbols.map(s => s.toUpperCase()))];
+  const result: { [symbol: string]: CryptoQuote | null } = {};
+  const symbolsToFetch: string[] = [];
+
+  // Check cache first
+  const now = Date.now();
+  for (const symbol of uniqueSymbols) {
+    const cached = priceCache[symbol];
+    if (cached && now - cached.timestamp < CACHE_DURATION) {
+      result[symbol] = cached.data;
+    } else {
+      symbolsToFetch.push(symbol);
+    }
+  }
+
+  if (symbolsToFetch.length === 0) {
+    return result;
+  }
+
   try {
-    // Convert symbol to CoinGecko ID (BTC -> bitcoin, ETH -> ethereum)
-    const coinId = symbolToCoinId(symbol);
+    // Convert symbols to CoinGecko IDs
+    const coinIds = symbolsToFetch.map(symbol => symbolToCoinId(symbol));
+    
+    // Join IDs with commas for the API request
+    const idsParam = coinIds.join(",");
 
     const response = await axios.get(`${BASE_URL}/simple/price`, {
       params: {
-        ids: coinId,
+        ids: idsParam,
         vs_currencies: "usd",
         include_24hr_change: true,
         include_market_cap: true,
@@ -27,25 +53,42 @@ export async function getCryptoPrice(symbol: string): Promise<CryptoQuote | null
       },
     });
 
-    const data = response.data[coinId];
+    const data = response.data;
 
-    if (!data) {
-      console.error(`No data found for crypto: ${symbol}`);
-      return null;
+    // Map responses back to symbols
+    for (let i = 0; i < symbolsToFetch.length; i++) {
+        const symbol = symbolsToFetch[i];
+        const coinId = coinIds[i];
+        const coinData = data[coinId];
+
+        if (coinData) {
+            const quote: CryptoQuote = {
+                symbol: symbol,
+                price: coinData.usd,
+                change24h: coinData.usd_24h_change || 0,
+                changePercent24h: coinData.usd_24h_change || 0,
+                marketCap: coinData.usd_market_cap || 0,
+                volume: coinData.usd_24h_vol || 0,
+            };
+            result[symbol] = quote;
+            priceCache[symbol] = { data: quote, timestamp: now };
+        } else {
+            console.warn(`No data found for crypto: ${symbol} (ID: ${coinId})`);
+            result[symbol] = null;
+        }
     }
 
-    return {
-      symbol: symbol.toUpperCase(),
-      price: data.usd,
-      change24h: data.usd_24h_change || 0,
-      changePercent24h: data.usd_24h_change || 0,
-      marketCap: data.usd_market_cap || 0,
-      volume: data.usd_24h_vol || 0,
-    };
   } catch (error) {
-    console.error(`Error fetching crypto price for ${symbol}:`, error);
-    return null;
+    console.error(`Error fetching crypto prices for ${symbolsToFetch.join(", ")}:`, error);
+    // return whatever we have from cache, others null
   }
+  
+  return result;
+}
+
+export async function getCryptoPrice(symbol: string): Promise<CryptoQuote | null> {
+    const prices = await getCryptoPrices([symbol]);
+    return prices[symbol.toUpperCase()] || null;
 }
 
 export async function searchCrypto(query: string) {

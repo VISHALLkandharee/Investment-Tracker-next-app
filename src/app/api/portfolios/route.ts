@@ -1,20 +1,20 @@
 import { prisma } from "@/lib/db/prisma";
 import { NextRequest, NextResponse } from "next/server";
-import { authMiddleware } from "@/lib/utils/middleware";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/utils/auth.config";
 
 export async function GET(request: NextRequest) {
   try {
-    const decoded = await authMiddleware(request);
-    if (decoded instanceof NextResponse) return decoded;
+    const session = await getServerSession(authOptions);
 
-    // get userId from decoded = {userId, email}
-    const userId = decoded.userId;
-
-    if (!userId)
-      return NextResponse.json(
+    if (!session || !session.user || !session.user.id) {
+       return NextResponse.json(
         { sucess: false, message: "Invalid user | not authenticated" },
-        { status: 400 },
+        { status: 401 }
       );
+    }
+
+    const userId = session.user.id;
 
     const portfolios = await prisma.portfolio.findMany({
       where: { userId: userId },
@@ -41,20 +41,16 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const session = await getServerSession(authOptions);
 
-    const decoded = await authMiddleware(request);
-    if (decoded instanceof NextResponse) return decoded;
-
-    console.log("userId" , decoded.userId)
-
-    const userId = decoded.userId;
-
-    if (!userId) {
-      return NextResponse.json(
+    if (!session || !session.user || !session.user.id) {
+       return NextResponse.json(
         { success: false, message: "Unauthorized" },
         { status: 401 }
       );
     }
+
+    const userId = session.user.id;
 
     const { name } = await request.json();
 

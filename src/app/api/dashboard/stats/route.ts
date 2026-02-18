@@ -1,17 +1,25 @@
-// src/app/api/dashboard/stats/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
-import { authMiddleware } from "@/lib/utils/middleware";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/utils/auth.config";
 import { calculatePortfolioValue } from "@/lib/services/analytics";
 
 export async function GET(request: NextRequest) {
   try {
-    const decoded = await authMiddleware(request);
-    if (decoded instanceof NextResponse) return decoded;
+    const session = await getServerSession(authOptions);
+
+    if (!session || !session.user || !session.user.id) {
+       return NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 401 }
+      );
+    }
+
+    const userId = session.user.id;
 
     // Get all portfolios with investments
     const portfolios = await prisma.portfolio.findMany({
-      where: { userId: decoded.userId },
+      where: { userId: userId },
       include: {
         investments: true,
       },

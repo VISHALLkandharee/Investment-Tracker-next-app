@@ -1,7 +1,7 @@
-// src/app/api/investments/[id]/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
-import { authMiddleware } from "@/lib/utils/middleware";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/utils/auth.config";
 
 // GET - Get single investment
 export async function GET(
@@ -9,10 +9,15 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const decoded = await authMiddleware(request);
-    if (decoded instanceof NextResponse) return decoded;
+    const session = await getServerSession(authOptions);
 
-    const userId = decoded.userId;
+    if (!session || !session.user || !session.user.id) {
+       return NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 401 }
+      );
+    }
+    const userId = session.user.id;
     const { id } = await params;
 
     const investment = await prisma.investment.findUnique({
@@ -50,10 +55,15 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const decoded = await authMiddleware(request);
-    if (decoded instanceof NextResponse) return decoded;
+    const session = await getServerSession(authOptions);
 
-    const userId = decoded.userId;
+    if (!session || !session.user || !session.user.id) {
+       return NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 401 }
+      );
+    }
+    const userId = session.user.id;
 
     const { id } = await params;
 
@@ -115,10 +125,15 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const decoded = await authMiddleware(request);
-    if (decoded instanceof NextResponse) return decoded;
+    const session = await getServerSession(authOptions);
 
-    const userId = decoded.userId;
+    if (!session || !session.user || !session.user.id) {
+       return NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 401 }
+      );
+    }
+    const userId = session.user.id;
 
     const { id } = await params;
 

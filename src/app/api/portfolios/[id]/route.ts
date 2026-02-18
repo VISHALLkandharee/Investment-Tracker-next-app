@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db/prisma";
 import { NextRequest, NextResponse } from "next/server";
-import { authMiddleware } from "@/lib/utils/middleware";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/utils/auth.config";
 
 //update
 export async function PUT(
@@ -8,11 +9,16 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const decoded = await authMiddleware(request);
-    if (decoded instanceof NextResponse) return decoded;
+    const session = await getServerSession(authOptions);
 
-    // get userId from decoded = {userId, email}
-    const userId = decoded.userId;
+    if (!session || !session.user || !session.user.id) {
+       return NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 401 }
+      );
+    }
+
+    const userId = session.user.id;
 
     const { id } = await params;
 
@@ -65,11 +71,16 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const decoded = await authMiddleware(request);
-    if (decoded instanceof NextResponse) return decoded;
+    const session = await getServerSession(authOptions);
 
-    // get userId from decoded = {userId, email}
-    const userId = decoded.userId;
+    if (!session || !session.user || !session.user.id) {
+       return NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 401 }
+      );
+    }
+
+    const userId = session.user.id;
 
     const { id } = await params;
 
@@ -108,11 +119,16 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const decoded = await authMiddleware(request);
-    if (decoded instanceof NextResponse) return decoded;
+    const session = await getServerSession(authOptions);
 
-    // get userId from decoded = {userId, email}
-    const userId = decoded.userId;
+    if (!session || !session.user || !session.user.id) {
+       return NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 401 }
+      );
+    }
+
+    const userId = session.user.id;
 
     const { id } = await params;
 

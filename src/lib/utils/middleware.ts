@@ -1,80 +1,56 @@
 import { NextRequest, NextResponse } from "next/server";
-import { verifyAccessToken } from "./auth";
+import { getToken } from "next-auth/jwt";
 
 export async function authMiddleware(
   request: NextRequest,
 ): Promise<{ userId: string; email: string } | NextResponse> {
   try {
-    console.log("middleware running...");
+    console.log("API middleware running...");
 
-    const authHeader = request.headers.get("authorization");
+    // ✅ Get NextAuth token instead of Bearer token
+    const token = await getToken({ 
+      req: request,
+      secret: process.env.NEXTAUTH_SECRET 
+    });
 
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    console.log("NextAuth token:", token);
+
+    if (!token || !token.email) {
       return NextResponse.json(
-        { error: "Authorization header missing" },
+        { error: "Unauthorized - Please login" },
         { status: 401 },
       );
     }
 
-    const token = authHeader.split(" ")[1];
+    // Return user info from NextAuth token
+    return {
+      userId: token.id as string,
+      email: token.email as string,
+    };
 
-    if (!token) {
-      return NextResponse.json(
-        { error: "Token not provided" },
-        { status: 401 },
-      );
-    }
-
-    const decoded = verifyAccessToken(token);
-
-    console.log(decoded);
-
-    if (!decoded) {
-      return NextResponse.json(
-        { error: "Invalid or expired token" },
-        { status: 401 },
-      );
-    }
-
-    return decoded;
-
-    // const requestHeaders = new Headers(request.headers);
-    // requestHeaders.set("userId", decoded.userId.toString());
-    // requestHeaders.set("email", decoded.email);
-
-    // return NextResponse.next({
-    //   request: {
-    //     headers: requestHeaders,
-    //   },
-    // });
   } catch (error) {
-    console.error("Middleware error:", error);
+    console.error("API Middleware error:", error);
     return NextResponse.json(
       {
         success: false,
-        message: "Failed authenticating the user!",
+        message: "Authentication failed",
       },
       { status: 500 },
     );
   }
 }
 
-export const config = {
-  matcher: [
-    "/api/portfolios/:path*",
-    "api/investments/:path*",
-    "api/investments/:path*",
-    "api/dashboard/:path*",
-    "api/search/:path*",
-  ],
-};
+// ❌ REMOVE this config - it conflicts with Next.js middleware
+// export const config = {
+//   matcher: [...]
+// };
 
-interface customError extends Error {
+interface CustomError extends Error {
   statusCode?: number;
 }
 
 export const errorHandlerMiddleware = async (
-  err: customError,
+  err: CustomError,
 ) => {
   const statusCode = err.statusCode || 500;
   const message =

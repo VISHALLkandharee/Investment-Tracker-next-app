@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { api } from "@/lib/api/client";
 import toast from "react-hot-toast";
 import { StatCardSkeleton, PortfolioCardSkeleton } from "@/components/ui/LoadingSkeleton";
+import { useSession, signOut } from "next-auth/react";
 
 interface User {
   id: string;
@@ -34,7 +35,7 @@ interface Portfolio {
 
 export default function DashboardPage() {
   const router = useRouter();
-  const [user, setUser] = useState<User | null>(null);
+  const { data: session, status } = useSession();
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [portfolios, setPortfolios] = useState<Portfolio[]>([]);
@@ -43,17 +44,12 @@ export default function DashboardPage() {
   const [creating, setCreating] = useState(false);
 
   useEffect(() => {
-    const token = localStorage.getItem("token");
-    const userData = localStorage.getItem("user");
-
-    if (!token || !userData) {
+    if (status === "unauthenticated") {
       router.push("/login");
-      return;
+    } else if (status === "authenticated") {
+      fetchDashboardData();
     }
-
-    setUser(JSON.parse(userData));
-    fetchDashboardData();
-  }, [router]);
+  }, [status, router]);
 
   const fetchDashboardData = async () => {
     try {
@@ -90,14 +86,17 @@ export default function DashboardPage() {
     }
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem("token");
-    localStorage.removeItem("user");
-    toast.success("Logged out successfully");
-    router.push("/login");
+  const handleLogout = async () => {
+    toast.loading("Logging out...");
+    await signOut({ callbackUrl: "/login" });
   };
 
   const isProfit = (stats?.totalProfit || 0) >= 0;
+
+  if (status === "loading") {
+    // Optional: Return a full page skeleton or just let the loading state below handle it
+    return <div className="min-h-screen bg-gray-50 flex items-center justify-center">Loading...</div>;
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -111,8 +110,8 @@ export default function DashboardPage() {
 
           <div className="flex items-center gap-2 sm:gap-4">
             <div className="text-right hidden sm:block">
-              <p className="text-sm font-semibold text-gray-800">{user?.name}</p>
-              <p className="text-xs text-gray-500">{user?.email}</p>
+              <p className="text-sm font-semibold text-gray-800">{session?.user?.name}</p>
+              <p className="text-xs text-gray-500">{session?.user?.email}</p>
             </div>
             <button
               onClick={handleLogout}
@@ -129,7 +128,7 @@ export default function DashboardPage() {
         {/* Welcome Section */}
         <div className="bg-linear-to-r from-indigo-500 to-purple-600 rounded-2xl p-6 sm:p-8 text-white mb-6 sm:mb-8">
           <h2 className="text-2xl sm:text-3xl font-bold mb-2">
-            Welcome back, {user?.name}! 👋
+            Welcome back, {session?.user?.name}! 👋
           </h2>
           <p className="text-indigo-100">Track your investments and grow your wealth.</p>
         </div>
