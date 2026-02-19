@@ -4,6 +4,21 @@ import { prisma } from "@/lib/db/prisma";
 import { getAuthUserId } from "@/lib/utils/apiAuth";
 import { calculatePortfolioValue } from "@/lib/services/analytics";
 
+interface Investment {
+  id: string;
+  symbol: string;
+  assetType: string;
+  shares: any; 
+  purchasePrice: any;
+  // ... other fields if needed for analytics
+}
+
+interface PortfolioWithInvestments {
+  id: string;
+  name: string;
+  investments: Investment[];
+}
+
 export async function GET(request: NextRequest) {
   try {
     const authResult = await getAuthUserId();
@@ -23,7 +38,7 @@ export async function GET(request: NextRequest) {
     let totalInvestments = 0;
 
     const portfolioAnalytics = await Promise.all(
-      portfolios.map(async (portfolio) => {
+      portfolios.map(async (portfolio: any) => {
         const analytics = await calculatePortfolioValue(portfolio.investments);
 
         totalValue += analytics.totalValue;
