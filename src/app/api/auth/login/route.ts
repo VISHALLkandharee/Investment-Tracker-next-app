@@ -23,14 +23,21 @@ export async function POST(request: NextRequest) {
         { status: 404 },
       );
 
-    const checkPAssword = await comparePassword(password, user.password);
+    // OAuth users (Google/GitHub) have no password
+    if (!user.password) {
+      return NextResponse.json(
+        { message: "This account uses social login. Please sign in via Google or GitHub." },
+        { status: 401 },
+      );
+    }
 
-    if (!checkPAssword)
+    const checkPassword = await comparePassword(password, user.password);
+
+    if (!checkPassword)
       return NextResponse.json(
         { message: "Invalid credentials" },
         { status: 401 },
       );
-
 
     const accessToken = generateAccessToken({
       userId: user.id,
@@ -44,7 +51,7 @@ export async function POST(request: NextRequest) {
       user,
     });
   } catch (error) {
-    console.log("Failed loggin user in..", error);
+    console.error("Failed logging user in:", error);
     return NextResponse.json(
       { message: "Failed loggin user in.." },
       { status: 500 },

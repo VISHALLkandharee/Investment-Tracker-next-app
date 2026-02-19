@@ -1,28 +1,19 @@
+// src/app/api/dashboard/stats/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/utils/auth.config";
+import { getAuthUserId } from "@/lib/utils/apiAuth";
 import { calculatePortfolioValue } from "@/lib/services/analytics";
 
 export async function GET(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
-
-    if (!session || !session.user || !session.user.id) {
-       return NextResponse.json(
-        { error: "Unauthorized" },
-        { status: 401 }
-      );
-    }
-
-    const userId = session.user.id;
+    const authResult = await getAuthUserId();
+    if (authResult instanceof NextResponse) return authResult;
+    const userId = authResult;
 
     // Get all portfolios with investments
     const portfolios = await prisma.portfolio.findMany({
-      where: { userId: userId },
-      include: {
-        investments: true,
-      },
+      where: { userId },
+      include: { investments: true },
     });
 
     // Calculate total stats across all portfolios
@@ -34,7 +25,7 @@ export async function GET(request: NextRequest) {
     const portfolioAnalytics = await Promise.all(
       portfolios.map(async (portfolio) => {
         const analytics = await calculatePortfolioValue(portfolio.investments);
-        
+
         totalValue += analytics.totalValue;
         totalCost += analytics.totalCost;
         totalProfit += analytics.totalProfit;
@@ -65,7 +56,7 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error("Dashboard stats error:", error);
     return NextResponse.json(
-      { error: "Internal server error" },
+      { success: false, error: "Internal server error" },
       { status: 500 }
     );
   }

@@ -1,41 +1,33 @@
+// src/app/api/portfolios/[id]/investments/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/utils/auth.config";
+import { getAuthUserId } from "@/lib/utils/apiAuth";
+import { addInvestmentSchema, formatZodErrors } from "@/lib/validators/schemas";
 
 // GET - Get all investments in a portfolio
 export async function GET(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await getServerSession(authOptions);
+    const authResult = await getAuthUserId();
+    if (authResult instanceof NextResponse) return authResult;
+    const userId = authResult;
 
-    if (!session || !session.user || !session.user.id) {
-       return NextResponse.json(
-        { error: "Unauthorized" },
-        { status: 401 }
-      );
-    }
-    const userId = session.user.id;
     const { id } = await params;
 
     // Verify portfolio belongs to user
     const portfolio = await prisma.portfolio.findUnique({
-      where: {
-        id: id,
-        userId: userId,
-      },
+      where: { id, userId },
     });
 
     if (!portfolio) {
       return NextResponse.json(
-        { error: "Portfolio not found" },
-        { status: 404 },
+        { success: false, error: "Portfolio not found" },
+        { status: 404 }
       );
     }
 
-    // Get all investments
     const investments = await prisma.investment.findMany({
       where: { portfolioId: id },
       orderBy: { purchaseDate: "desc" },
@@ -45,8 +37,8 @@ export async function GET(
   } catch (error) {
     console.error("Get investments error:", error);
     return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 },
+      { success: false, error: "Internal server error" },
+      { status: 500 }
     );
   }
 }
@@ -54,85 +46,50 @@ export async function GET(
 // POST - Add investment to portfolio
 export async function POST(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await getServerSession(authOptions);
+    const authResult = await getAuthUserId();
+    if (authResult instanceof NextResponse) return authResult;
+    const userId = authResult;
 
-    if (!session || !session.user || !session.user.id) {
-       return NextResponse.json(
-        { error: "Unauthorized" },
-        { status: 401 }
-      );
-    }
-    const userId = session.user.id;
     const { id } = await params;
-
 
     // Verify portfolio belongs to user
     const portfolio = await prisma.portfolio.findUnique({
-      where: {
-        id: id,
-        userId:userId,
-      },
+      where: { id, userId },
     });
 
     if (!portfolio) {
       return NextResponse.json(
-        { error: "Portfolio not found" },
-        { status: 404 },
+        { success: false, error: "Portfolio not found" },
+        { status: 404 }
       );
     }
 
-    const {
-      symbol,
-      assetType,
-      transactionType,
-      shares,
-      purchasePrice,
-      purchaseDate,
-    } = await request.json();
+    const body = await request.json();
 
-    // Validate required fields
-    if (
-      !symbol ||
-      !assetType ||
-      !transactionType ||
-      !shares ||
-      !purchasePrice
-    ) {
+    // Validate with Zod
+    const parsed = addInvestmentSchema.safeParse(body);
+    if (!parsed.success) {
       return NextResponse.json(
-        { error: "Missing required fields" },
-        { status: 400 },
+        { success: false, error: formatZodErrors(parsed.error) },
+        { status: 400 }
       );
     }
 
-    // Validate assetType
-    if (!["stock", "crypto"].includes(assetType)) {
-      return NextResponse.json(
-        { error: "Asset type must be 'stock' or 'crypto'" },
-        { status: 400 },
-      );
-    }
-
-    // Validate transactionType
-    if (!["buy", "sell"].includes(transactionType)) {
-      return NextResponse.json(
-        { error: "Transaction type must be 'buy' or 'sell'" },
-        { status: 400 },
-      );
-    }
+    const { symbol, assetType, transactionType, shares, purchasePrice, purchaseDate } = parsed.data;
 
     // Create investment
     const investment = await prisma.investment.create({
       data: {
-        symbol: symbol.toUpperCase(),
+        symbol,
         assetType,
         transactionType,
-        shares: parseFloat(shares),
-        purchasePrice: parseFloat(purchasePrice),
-        purchaseDate: purchaseDate ? new Date(purchaseDate) : new Date(),
-        portfolioId:id,
+        shares,
+        purchasePrice,
+        purchaseDate,
+        portfolioId: id,
       },
     });
 
@@ -142,13 +99,13 @@ export async function POST(
         message: "Investment added successfully",
         investment,
       },
-      { status: 201 },
+      { status: 201 }
     );
   } catch (error) {
     console.error("Create investment error:", error);
     return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 },
+      { success: false, error: "Internal server error" },
+      { status: 500 }
     );
   }
 }

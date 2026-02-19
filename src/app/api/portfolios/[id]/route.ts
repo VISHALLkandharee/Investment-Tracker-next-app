@@ -1,53 +1,47 @@
+// src/app/api/portfolios/[id]/route.ts
 import { prisma } from "@/lib/db/prisma";
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/utils/auth.config";
+import { getAuthUserId } from "@/lib/utils/apiAuth";
+import { updatePortfolioSchema, formatZodErrors } from "@/lib/validators/schemas";
 
-//update
+// PUT - Update portfolio name
 export async function PUT(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await getServerSession(authOptions);
-
-    if (!session || !session.user || !session.user.id) {
-       return NextResponse.json(
-        { error: "Unauthorized" },
-        { status: 401 }
-      );
-    }
-
-    const userId = session.user.id;
+    const authResult = await getAuthUserId();
+    if (authResult instanceof NextResponse) return authResult;
+    const userId = authResult;
 
     const { id } = await params;
+    const body = await request.json();
 
-    const { name } = await request.json();
-
-    if (!name || name.trim() === "") {
+    // Validate with Zod
+    const parsed = updatePortfolioSchema.safeParse(body);
+    if (!parsed.success) {
       return NextResponse.json(
-        { error: "Portfolio name is required" },
-        { status: 400 },
+        { success: false, error: formatZodErrors(parsed.error) },
+        { status: 400 }
       );
     }
 
+    const { name } = parsed.data;
+
     const existing = await prisma.portfolio.findUnique({
-      where: {
-        id: id,
-        userId: userId as string,
-      },
+      where: { id, userId },
     });
 
     if (!existing) {
       return NextResponse.json(
-        { error: "Portfolio not found" },
-        { status: 404 },
+        { success: false, error: "Portfolio not found" },
+        { status: 404 }
       );
     }
 
     const portfolio = await prisma.portfolio.update({
-      where: { id: id },
-      data: { name: name.trim() },
+      where: { id },
+      data: { name },
       include: { investments: true },
     });
 
@@ -59,36 +53,26 @@ export async function PUT(
   } catch (error) {
     console.error("Update portfolio error:", error);
     return NextResponse.json(
-      { error: "Failed updating portfolio | server error" },
-      { status: 500 },
+      { success: false, error: "Failed updating portfolio" },
+      { status: 500 }
     );
   }
 }
 
-//get porfolio --one
+// GET - Get single portfolio
 export async function GET(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await getServerSession(authOptions);
-
-    if (!session || !session.user || !session.user.id) {
-       return NextResponse.json(
-        { error: "Unauthorized" },
-        { status: 401 }
-      );
-    }
-
-    const userId = session.user.id;
+    const authResult = await getAuthUserId();
+    if (authResult instanceof NextResponse) return authResult;
+    const userId = authResult;
 
     const { id } = await params;
 
     const portfolio = await prisma.portfolio.findUnique({
-      where: {
-        id: id,
-        userId: userId as string,
-      },
+      where: { id, userId },
       include: {
         investments: {
           orderBy: { purchaseDate: "desc" },
@@ -98,60 +82,46 @@ export async function GET(
 
     if (!portfolio) {
       return NextResponse.json(
-        { error: "Portfolio not found" },
-        { status: 404 },
+        { success: false, error: "Portfolio not found" },
+        { status: 404 }
       );
     }
 
-    return NextResponse.json({ id: id, success: true, portfolio });
+    return NextResponse.json({ id, success: true, portfolio });
   } catch (error) {
     console.error("Get portfolio error:", error);
     return NextResponse.json(
-      { error: "Failed getting the portfolio | server error" },
-      { status: 500 },
+      { success: false, error: "Failed getting the portfolio" },
+      { status: 500 }
     );
   }
 }
 
-//delete portfolio --one
+// DELETE - Delete portfolio
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await getServerSession(authOptions);
-
-    if (!session || !session.user || !session.user.id) {
-       return NextResponse.json(
-        { error: "Unauthorized" },
-        { status: 401 }
-      );
-    }
-
-    const userId = session.user.id;
+    const authResult = await getAuthUserId();
+    if (authResult instanceof NextResponse) return authResult;
+    const userId = authResult;
 
     const { id } = await params;
 
     const portfolio = await prisma.portfolio.findUnique({
-      where: {
-        userId: userId as string,
-        id: id,
-      },
+      where: { userId, id },
     });
 
-    if (!portfolio)
+    if (!portfolio) {
       return NextResponse.json(
-        {
-          success: false,
-          message: "porfolio not found",
-        },
-        { status: 404 },
+        { success: false, error: "Portfolio not found" },
+        { status: 404 }
       );
-
-    console.log("found existing Portfolio");
+    }
 
     await prisma.portfolio.delete({
-      where: { id: id, userId: userId as string },
+      where: { id, userId },
     });
 
     return NextResponse.json({
@@ -159,9 +129,10 @@ export async function DELETE(
       message: "Portfolio deleted successfully",
     });
   } catch (error) {
+    console.error("Delete portfolio error:", error);
     return NextResponse.json(
-      { error: "Failed deleting the portfolio | server error" },
-      { status: 500 },
+      { success: false, error: "Failed deleting the portfolio" },
+      { status: 500 }
     );
   }
 }

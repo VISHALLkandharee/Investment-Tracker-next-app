@@ -1,18 +1,14 @@
 // src/app/dashboard/page.tsx
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api/client";
 import toast from "react-hot-toast";
 import { StatCardSkeleton, PortfolioCardSkeleton } from "@/components/ui/LoadingSkeleton";
 import { useSession, signOut } from "next-auth/react";
-
-interface User {
-  id: string;
-  name: string;
-  email: string;
-}
+import StatsCard from "@/components/dashboard/StatsCard";
+import PortfolioCard from "@/components/dashboard/PortfolioCard";
 
 interface DashboardStats {
   totalPortfolios: number;
@@ -30,7 +26,7 @@ interface Portfolio {
   totalCost: number;
   totalProfit: number;
   totalProfitPercent: number;
-  investments: any[];
+  investments: unknown[];
 }
 
 export default function DashboardPage() {
@@ -43,15 +39,8 @@ export default function DashboardPage() {
   const [newPortfolioName, setNewPortfolioName] = useState("");
   const [creating, setCreating] = useState(false);
 
-  useEffect(() => {
-    if (status === "unauthenticated") {
-      router.push("/login");
-    } else if (status === "authenticated") {
-      fetchDashboardData();
-    }
-  }, [status, router]);
-
-  const fetchDashboardData = async () => {
+  // useCallback: memoize fetch function so it doesn't get re-created every render
+  const fetchDashboardData = useCallback(async () => {
     try {
       setLoading(true);
       const data = await api.getDashboardStats();
@@ -63,7 +52,15 @@ export default function DashboardPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    if (status === "unauthenticated") {
+      router.push("/login");
+    } else if (status === "authenticated") {
+      fetchDashboardData();
+    }
+  }, [status, router, fetchDashboardData]);
 
   const handleCreatePortfolio = async () => {
     if (!newPortfolioName.trim()) {
@@ -80,7 +77,8 @@ export default function DashboardPage() {
       fetchDashboardData();
     } catch (error) {
       console.error("Failed to create portfolio:", error);
-      toast.error("Failed to create portfolio");
+      const message = error instanceof Error ? error.message : "Failed to create portfolio";
+      toast.error(message);
     } finally {
       setCreating(false);
     }
@@ -91,11 +89,19 @@ export default function DashboardPage() {
     await signOut({ callbackUrl: "/login" });
   };
 
+  // Helper for currency formatting (used by StatsCard)
+  const formatCurrency = (value: number) =>
+    "$" + value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
   const isProfit = (stats?.totalProfit || 0) >= 0;
+  const profitColorClass = isProfit ? "text-green-600" : "text-red-600";
 
   if (status === "loading") {
-    // Optional: Return a full page skeleton or just let the loading state below handle it
-    return <div className="min-h-screen bg-gray-50 flex items-center justify-center">Loading...</div>;
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        Loading...
+      </div>
+    );
   }
 
   return (
@@ -133,7 +139,7 @@ export default function DashboardPage() {
           <p className="text-indigo-100">Track your investments and grow your wealth.</p>
         </div>
 
-        {/* Stats Cards */}
+        {/* Stats Cards - Now using extracted component */}
         {loading ? (
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-6 sm:mb-8">
             <StatCardSkeleton />
@@ -143,32 +149,26 @@ export default function DashboardPage() {
           </div>
         ) : (
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-6 sm:mb-8">
-            <div className="bg-white rounded-xl shadow-md p-4 sm:p-6">
-              <p className="text-xs sm:text-sm font-medium text-gray-500 mb-2">Total Portfolios</p>
-              <p className="text-2xl sm:text-4xl font-bold text-gray-800">{stats?.totalPortfolios || 0}</p>
-            </div>
-
-            <div className="bg-white rounded-xl shadow-md p-4 sm:p-6">
-              <p className="text-xs sm:text-sm font-medium text-gray-500 mb-2">Total Investments</p>
-              <p className="text-2xl sm:text-4xl font-bold text-gray-800">{stats?.totalInvestments || 0}</p>
-            </div>
-
-            <div className="bg-white rounded-xl shadow-md p-4 sm:p-6">
-              <p className="text-xs sm:text-sm font-medium text-gray-500 mb-2">Portfolio Value</p>
-              <p className={`text-xl sm:text-4xl font-bold ${isProfit ? "text-green-600" : "text-red-600"}`}>
-                ${(stats?.totalValue || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </p>
-            </div>
-
-            <div className="bg-white rounded-xl shadow-md p-4 sm:p-6">
-              <p className="text-xs sm:text-sm font-medium text-gray-500 mb-2">Total Profit/Loss</p>
-              <p className={`text-xl sm:text-4xl font-bold ${isProfit ? "text-green-600" : "text-red-600"}`}>
-                {isProfit ? "+" : ""}${(stats?.totalProfit || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </p>
-              <p className={`text-xs sm:text-sm font-medium ${isProfit ? "text-green-600" : "text-red-600"} mt-1`}>
-                {isProfit ? "+" : ""}{(stats?.totalProfitPercent || 0).toFixed(2)}%
-              </p>
-            </div>
+            <StatsCard
+              label="Total Portfolios"
+              value={String(stats?.totalPortfolios || 0)}
+            />
+            <StatsCard
+              label="Total Investments"
+              value={String(stats?.totalInvestments || 0)}
+            />
+            <StatsCard
+              label="Portfolio Value"
+              value={formatCurrency(stats?.totalValue || 0)}
+              colorClass={profitColorClass}
+            />
+            <StatsCard
+              label="Total Profit/Loss"
+              value={`${isProfit ? "+" : ""}${formatCurrency(stats?.totalProfit || 0)}`}
+              colorClass={profitColorClass}
+              subText={`${isProfit ? "+" : ""}${(stats?.totalProfitPercent || 0).toFixed(2)}%`}
+              subColorClass={profitColorClass}
+            />
           </div>
         )}
 
@@ -204,48 +204,18 @@ export default function DashboardPage() {
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
-              {portfolios.map((portfolio) => {
-                const portfolioProfit = portfolio.totalProfit >= 0;
-                return (
-                  <div
-                    key={portfolio.id}
-                    onClick={() => router.push(`/portfolio/${portfolio.id}`)}
-                    className="border-2 border-gray-200 rounded-xl p-4 sm:p-6 hover:border-indigo-500 hover:shadow-lg transition cursor-pointer"
-                  >
-                    <h4 className="text-base sm:text-lg font-bold text-gray-800 mb-4 truncate">{portfolio.name}</h4>
-                    
-                    <div className="space-y-2 text-sm">
-                      <div className="flex justify-between">
-                        <span className="text-gray-500">Value:</span>
-                        <span className="font-semibold text-gray-800">
-                          ${portfolio.totalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </span>
-                      </div>
-
-                      <div className="flex justify-between">
-                        <span className="text-gray-500">Cost:</span>
-                        <span className="font-semibold text-gray-800">
-                          ${portfolio.totalCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </span>
-                      </div>
-
-                      <div className="flex justify-between">
-                        <span className="text-gray-500">Profit/Loss:</span>
-                        <span className={`font-semibold ${portfolioProfit ? "text-green-600" : "text-red-600"}`}>
-                          {portfolioProfit ? "+" : ""}${portfolio.totalProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ({portfolioProfit ? "+" : ""}{portfolio.totalProfitPercent.toFixed(2)}%)
-                        </span>
-                      </div>
-
-                      <div className="flex justify-between pt-2 border-t">
-                        <span className="text-gray-500">Investments:</span>
-                        <span className="font-semibold text-gray-800">
-                          {portfolio.investments.length}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
+              {portfolios.map((portfolio) => (
+                <PortfolioCard
+                  key={portfolio.id}
+                  id={portfolio.id}
+                  name={portfolio.name}
+                  totalValue={portfolio.totalValue}
+                  totalCost={portfolio.totalCost}
+                  totalProfit={portfolio.totalProfit}
+                  totalProfitPercent={portfolio.totalProfitPercent}
+                  investmentCount={portfolio.investments.length}
+                />
+              ))}
             </div>
           )}
         </div>
@@ -256,13 +226,13 @@ export default function DashboardPage() {
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl p-6 sm:p-8 w-full max-w-md">
             <h3 className="text-xl sm:text-2xl font-bold text-gray-800 mb-6">Create New Portfolio</h3>
-            
+
             <input
               type="text"
               placeholder="Portfolio name (e.g., Tech Stocks)"
               value={newPortfolioName}
               onChange={(e) => setNewPortfolioName(e.target.value)}
-              onKeyPress={(e) => e.key === "Enter" && handleCreatePortfolio()}
+              onKeyDown={(e) => e.key === "Enter" && handleCreatePortfolio()}
               className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 focus:border-indigo-500 focus:outline-none transition text-base sm:text-lg mb-6"
               autoFocus
               disabled={creating}

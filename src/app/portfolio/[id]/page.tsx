@@ -1,22 +1,15 @@
 // src/app/portfolio/[id]/page.tsx
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 
 import { api } from "@/lib/api/client";
 import toast from "react-hot-toast";
-import {
-  TableRowSkeleton,
-  StatCardSkeleton,
-} from "@/components/ui/LoadingSkeleton";
-//validation imports
-import {
-  validateSymbol,
-  validatePrice,
-  validateShares,
-} from "@/lib/utils/validations";
+import { TableRowSkeleton, StatCardSkeleton } from "@/components/ui/LoadingSkeleton";
+import { addInvestmentSchema } from "@/lib/validators/schemas";
+import InvestmentTable from "@/components/portfolio/InvestmentTable";
 
 interface Investment {
   id: string;
@@ -64,18 +57,7 @@ export default function PortfolioDetailPage() {
     purchaseDate: new Date().toISOString().split("T")[0],
   });
 
-  useEffect(() => {
-    if (status === "unauthenticated") {
-      router.push("/login");
-      return;
-    }
-
-    if (status === "authenticated") {
-      fetchPortfolio();
-    }
-  }, [status, portfolioId, router]);
-
-  const fetchPortfolio = async () => {
+  const fetchPortfolio = useCallback(async () => {
     try {
       setLoading(true);
       const data = await api.getPortfolioAnalytics(portfolioId);
@@ -87,59 +69,49 @@ export default function PortfolioDetailPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [portfolioId, router]);
+
+  useEffect(() => {
+    if (status === "unauthenticated") {
+      router.push("/login");
+      return;
+    }
+    if (status === "authenticated") {
+      fetchPortfolio();
+    }
+  }, [status, fetchPortfolio, router]);
 
   const handleAddInvestment = async () => {
-    // Validate all fields
-    if (!formData.symbol || !formData.shares || !formData.purchasePrice) {
-      toast.error("Please fill all required fields");
+    // Validate with Zod
+    const validationData = {
+      ...formData,
+      shares: parseFloat(formData.shares),
+      purchasePrice: parseFloat(formData.purchasePrice),
+      symbol: formData.symbol.toUpperCase(),
+    };
+
+    const parsed = addInvestmentSchema.safeParse(validationData);
+
+    if (!parsed.success) {
+      // Show the first error message
+      toast.error(parsed.error.issues[0].message);
       return;
     }
 
-    // Validate symbol
-    const symbolValidation = validateSymbol(
-      formData.symbol,
-      formData.assetType,
-    );
-    if (!symbolValidation.valid) {
-      toast.error(symbolValidation.message || "Invalid symbol");
-      return;
-    }
-
-    // Show warning for unknown symbols
-    if (symbolValidation.message) {
-      const confirmed = confirm(
-        symbolValidation.message + "\n\nContinue anyway?",
-      );
-      if (!confirmed) return;
-    }
-
-    // Validate shares
-    const sharesValidation = validateShares(parseFloat(formData.shares));
-    if (!sharesValidation.valid) {
-      toast.error(sharesValidation.message || "Invalid shares");
-      return;
-    }
-
-    // Validate price
-    const priceValidation = validatePrice(parseFloat(formData.purchasePrice));
-    if (!priceValidation.valid) {
-      toast.error(priceValidation.message || "Invalid price");
-      return;
-    }
+    const { symbol, assetType, transactionType, shares, purchasePrice, purchaseDate } = parsed.data;
 
     setSubmitting(true);
     try {
       await api.addInvestment(portfolioId, {
-        symbol: formData.symbol.toUpperCase(),
-        assetType: formData.assetType,
-        transactionType: formData.transactionType,
-        shares: parseFloat(formData.shares),
-        purchasePrice: parseFloat(formData.purchasePrice),
-        purchaseDate: formData.purchaseDate,
+        symbol,
+        assetType,
+        transactionType,
+        shares,
+        purchasePrice,
+        purchaseDate,
       });
 
-      toast.success(`${formData.symbol.toUpperCase()} added successfully!`);
+      toast.success(`${symbol} added successfully!`);
 
       setFormData({
         symbol: "",
@@ -154,7 +126,8 @@ export default function PortfolioDetailPage() {
       fetchPortfolio();
     } catch (error) {
       console.error("Failed to add investment:", error);
-      toast.error("Failed to add investment");
+      const message = error instanceof Error ? error.message : "Failed to add investment";
+      toast.error(message);
     } finally {
       setSubmitting(false);
     }
@@ -172,7 +145,8 @@ export default function PortfolioDetailPage() {
       fetchPortfolio();
     } catch (error) {
       console.error("Failed to delete investment:", error);
-      toast.error("Failed to delete investment");
+      const message = error instanceof Error ? error.message : "Failed to delete investment";
+      toast.error(message);
     }
   };
 
@@ -190,7 +164,8 @@ export default function PortfolioDetailPage() {
       fetchPortfolio();
     } catch (error) {
       console.error("Failed to update portfolio:", error);
-      toast.error("Failed to update portfolio name");
+      const message = error instanceof Error ? error.message : "Failed to update portfolio name";
+      toast.error(message);
     } finally {
       setSubmitting(false);
     }
@@ -210,7 +185,8 @@ export default function PortfolioDetailPage() {
       router.push("/dashboard");
     } catch (error) {
       console.error("Failed to delete portfolio:", error);
-      toast.error("Failed to delete portfolio");
+      const message = error instanceof Error ? error.message : "Failed to delete portfolio";
+      toast.error(message);
     }
   };
 
@@ -403,9 +379,7 @@ export default function PortfolioDetailPage() {
         {/* Investments Section */}
         <div className="bg-white rounded-xl shadow-md p-4 sm:p-6">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-            <h3 className="text-lg sm:text-xl font-bold text-gray-800">
-              Investments
-            </h3>
+            <h3 className="text-lg sm:text-xl font-bold text-gray-800">Investments</h3>
             <button
               onClick={() => setShowAddModal(true)}
               className="w-full sm:w-auto bg-indigo-600 text-white px-6 py-2 rounded-lg hover:bg-indigo-700 transition font-medium"
@@ -414,236 +388,10 @@ export default function PortfolioDetailPage() {
             </button>
           </div>
 
-          {portfolio.investments.length === 0 ? (
-            <div className="text-center py-12">
-              <div className="text-5xl sm:text-6xl mb-4">💼</div>
-              <h4 className="text-base sm:text-lg font-semibold text-gray-800 mb-2">
-                No investments yet
-              </h4>
-              <p className="text-sm sm:text-base text-gray-500 mb-6">
-                Add your first stock or crypto investment
-              </p>
-              <button
-                onClick={() => setShowAddModal(true)}
-                className="bg-indigo-600 text-white px-6 py-3 rounded-lg hover:bg-indigo-700 transition font-medium"
-              >
-                Add Your First Investment
-              </button>
-            </div>
-          ) : (
-            <>
-              {/* Desktop Table */}
-              <div className="hidden lg:block overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b-2 border-gray-200">
-                      <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">
-                        Symbol
-                      </th>
-                      <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">
-                        Type
-                      </th>
-                      <th className="text-right py-3 px-4 text-sm font-semibold text-gray-600">
-                        Shares
-                      </th>
-                      <th className="text-right py-3 px-4 text-sm font-semibold text-gray-600">
-                        Purchase Price
-                      </th>
-                      <th className="text-right py-3 px-4 text-sm font-semibold text-gray-600">
-                        Current Price
-                      </th>
-                      <th className="text-right py-3 px-4 text-sm font-semibold text-gray-600">
-                        Current Value
-                      </th>
-                      <th className="text-right py-3 px-4 text-sm font-semibold text-gray-600">
-                        Profit/Loss
-                      </th>
-                      <th className="text-center py-3 px-4 text-sm font-semibold text-gray-600">
-                        Actions
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {portfolio.investments.map((investment) => {
-                      const investmentProfit = (investment.profit || 0) >= 0;
-                      return (
-                        <tr
-                          key={investment.id}
-                          className="border-b border-gray-100 hover:bg-gray-50"
-                        >
-                          <td className="py-4 px-4">
-                            <div className="font-semibold text-gray-800">
-                              {investment.symbol}
-                            </div>
-                            <div className="text-xs text-gray-500">
-                              {new Date(
-                                investment.purchaseDate,
-                              ).toLocaleDateString()}
-                            </div>
-                          </td>
-                          <td className="py-4 px-4">
-                            <span
-                              className={`px-3 py-1 rounded-full text-xs font-medium ${
-                                investment.assetType === "stock"
-                                  ? "bg-blue-100 text-blue-700"
-                                  : "bg-orange-100 text-orange-700"
-                              }`}
-                            >
-                              {investment.assetType}
-                            </span>
-                          </td>
-                          <td className="py-4 px-4 text-right font-medium text-gray-800">
-                            {investment.shares}
-                          </td>
-                          <td className="py-4 px-4 text-right font-medium text-gray-800">
-                            ${investment.purchasePrice}
-                          </td>
-                          <td className="py-4 px-4 text-right font-medium text-gray-800">
-                            ${(investment.currentPrice || 0).toFixed(2)}
-                          </td>
-                          <td className="py-4 px-4 text-right font-semibold text-gray-800">
-                            $
-                            {(investment.currentValue || 0).toLocaleString(
-                              undefined,
-                              {
-                                minimumFractionDigits: 2,
-                                maximumFractionDigits: 2,
-                              },
-                            )}
-                          </td>
-                          <td className="py-4 px-4 text-right">
-                            <div
-                              className={`font-semibold ${investmentProfit ? "text-green-600" : "text-red-600"}`}
-                            >
-                              {investmentProfit ? "+" : ""}$
-                              {(investment.profit || 0).toFixed(2)}
-                            </div>
-                            <div
-                              className={`text-xs ${investmentProfit ? "text-green-600" : "text-red-600"}`}
-                            >
-                              {investmentProfit ? "+" : ""}
-                              {(investment.profitPercent || 0).toFixed(2)}%
-                            </div>
-                          </td>
-                          <td className="py-4 px-4 text-center cursor-pointer">
-                            <button
-                              onClick={() =>
-                                handleDeleteInvestment(
-                                  investment.id,
-                                  investment.symbol,
-                                )
-                              }
-                              className="text-red-500 hover:text-red-700 font-medium text-sm"
-                            >
-                              Delete
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-
-              {/* Mobile Cards */}
-              <div className="lg:hidden space-y-4">
-                {portfolio.investments.map((investment) => {
-                  const investmentProfit = (investment.profit || 0) >= 0;
-                  return (
-                    <div
-                      key={investment.id}
-                      className="border-2 border-gray-200 rounded-xl p-4"
-                    >
-                      <div className="flex justify-between items-start mb-3">
-                        <div>
-                          <h4 className="text-lg font-bold text-gray-800">
-                            {investment.symbol}
-                          </h4>
-                          <p className="text-xs text-gray-500">
-                            {new Date(
-                              investment.purchaseDate,
-                            ).toLocaleDateString()}
-                          </p>
-                        </div>
-                        <span
-                          className={`px-3 py-1 rounded-full text-xs font-medium ${
-                            investment.assetType === "stock"
-                              ? "bg-blue-100 text-blue-700"
-                              : "bg-orange-100 text-orange-700"
-                          }`}
-                        >
-                          {investment.assetType}
-                        </span>
-                      </div>
-
-                      <div className="space-y-2 text-sm mb-4">
-                        <div className="flex justify-between">
-                          <span className="text-gray-500">Shares:</span>
-                          <span className="font-medium text-gray-800">
-                            {investment.shares}
-                          </span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-500">Purchase Price:</span>
-                          <span className="font-medium text-gray-800">
-                            ${investment.purchasePrice}
-                          </span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-500">Current Price:</span>
-                          <span className="font-medium text-gray-800">
-                            ${(investment.currentPrice || 0).toFixed(2)}
-                          </span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-500">Current Value:</span>
-                          <span className="font-semibold text-gray-800">
-                            $
-                            {(investment.currentValue || 0).toLocaleString(
-                              undefined,
-                              {
-                                minimumFractionDigits: 2,
-                                maximumFractionDigits: 2,
-                              },
-                            )}
-                          </span>
-                        </div>
-                        <div className="flex justify-between pt-2 border-t">
-                          <span className="text-gray-500">Profit/Loss:</span>
-                          <div className="text-right">
-                            <div
-                              className={`font-semibold ${investmentProfit ? "text-green-600" : "text-red-600"}`}
-                            >
-                              {investmentProfit ? "+" : ""}$
-                              {(investment.profit || 0).toFixed(2)}
-                            </div>
-                            <div
-                              className={`text-xs ${investmentProfit ? "text-green-600" : "text-red-600"}`}
-                            >
-                              {investmentProfit ? "+" : ""}
-                              {(investment.profitPercent || 0).toFixed(2)}%
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      <button
-                        onClick={() =>
-                          handleDeleteInvestment(
-                            investment.id,
-                            investment.symbol,
-                          )
-                        }
-                        className="w-full bg-red-50 text-red-600 py-2 rounded-lg hover:bg-red-100 transition font-medium text-sm cursor-pointer"
-                      >
-                        Delete Investment
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            </>
-          )}
+          <InvestmentTable
+            investments={portfolio.investments}
+            onDelete={handleDeleteInvestment}
+          />
         </div>
       </main>
 

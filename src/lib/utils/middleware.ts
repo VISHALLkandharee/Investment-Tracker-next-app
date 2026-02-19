@@ -40,10 +40,7 @@ export async function authMiddleware(
   }
 }
 
-// ❌ REMOVE this config - it conflicts with Next.js middleware
-// export const config = {
-//   matcher: [...]
-// };
+
 
 interface CustomError extends Error {
   statusCode?: number;

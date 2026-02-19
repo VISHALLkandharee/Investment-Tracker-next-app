@@ -1,69 +1,58 @@
+// src/app/api/auth/register/route.ts
 import { prisma } from "@/lib/db/prisma";
 import { NextRequest, NextResponse } from "next/server";
-import { generateRefreshToken, hashPassword } from "@/lib/utils/auth";
+import { hashPassword } from "@/lib/utils/auth";
+import { registerSchema, formatZodErrors } from "@/lib/validators/schemas";
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { name, email, password } = body;
 
-    if (!name || !email || !password)
+    // Validate with Zod
+    const parsed = registerSchema.safeParse(body);
+    if (!parsed.success) {
       return NextResponse.json(
-        { message: "all fields required!" },
-        { status: 400 },
+        { success: false, message: formatZodErrors(parsed.error) },
+        { status: 400 }
       );
+    }
 
-    const existingUser = await prisma.user.findUnique({
-      where: { email },
-    });
+    const { name, email, password } = parsed.data;
 
-    if (existingUser)
+    const existingUser = await prisma.user.findUnique({ where: { email } });
+
+    if (existingUser) {
       return NextResponse.json(
-        { message: "User already exists" },
-        { status: 404 },
+        { success: false, message: "An account with this email already exists" },
+        { status: 409 } // 409 Conflict is more accurate than 404
       );
+    }
 
     const hashedPassword = await hashPassword(password);
-    // Create user
+
     const user = await prisma.user.create({
-      data: {
-        name,
-        email,
-        password: hashedPassword,
-      },
+      data: { name, email, password: hashedPassword },
       select: {
         id: true,
         email: true,
         name: true,
         createdAt: true,
-        portfolios:true
       },
-    });
-
-    const refreshToken = generateRefreshToken({
-      userId: user.id,
-      email: user.email,
     });
 
     return NextResponse.json(
       {
         success: true,
-        message: "User created successfully",
-        token: refreshToken,
+        message: "Account created successfully",
         user,
       },
-      { status: 201 },
+      { status: 201 }
     );
   } catch (error) {
-
-    console.log(error)
-
+    console.error("Register error:", error);
     return NextResponse.json(
-      {
-        success: false,
-        message: "failed creating the user!",
-      },
-      { status: 500 },
+      { success: false, message: "Failed to create account" },
+      { status: 500 }
     );
   }
 }

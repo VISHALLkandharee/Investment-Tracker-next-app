@@ -1,30 +1,24 @@
+// src/app/api/portfolios/route.ts
 import { prisma } from "@/lib/db/prisma";
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/utils/auth.config";
+import { getAuthUserId } from "@/lib/utils/apiAuth";
+import { createPortfolioSchema, formatZodErrors } from "@/lib/validators/schemas";
+import { z } from "zod";
 
 export async function GET(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
-
-    if (!session || !session.user || !session.user.id) {
-       return NextResponse.json(
-        { sucess: false, message: "Invalid user | not authenticated" },
-        { status: 401 }
-      );
-    }
-
-    const userId = session.user.id;
+    const authResult = await getAuthUserId();
+    if (authResult instanceof NextResponse) return authResult;
+    const userId = authResult;
 
     const portfolios = await prisma.portfolio.findMany({
-      where: { userId: userId },
+      where: { userId },
       include: {
         investments: true,
         _count: {
           select: { investments: true },
         },
       },
-
       orderBy: {
         createdAt: "desc",
       },
@@ -32,59 +26,48 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ success: true, portfolios });
   } catch (error) {
+    console.error("Portfolio GET error:", error);
     return NextResponse.json(
-      { sucess: false, message: "Failed getting the portfolios" },
-      { status: 500 },
+      { success: false, error: "Failed getting the portfolios" },
+      { status: 500 }
     );
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const authResult = await getAuthUserId();
+    if (authResult instanceof NextResponse) return authResult;
+    const userId = authResult;
 
-    if (!session || !session.user || !session.user.id) {
-       return NextResponse.json(
-        { success: false, message: "Unauthorized" },
-        { status: 401 }
-      );
-    }
+    const body = await request.json();
 
-    const userId = session.user.id;
-
-    const { name } = await request.json();
-
-    // Validate name
-    if (!name || name.trim() === "") {
+    // Validate with Zod
+    const parsed = createPortfolioSchema.safeParse(body);
+    if (!parsed.success) {
       return NextResponse.json(
-        { success: false, message: "Portfolio name is required" },
+        { success: false, error: formatZodErrors(parsed.error) },
         { status: 400 }
       );
     }
 
+    const { name } = parsed.data;
+
+    // Check duplicate name
     const existingPortfolio = await prisma.portfolio.findFirst({
-      where: {
-        userId: userId,
-        name: name.trim(),
-      },
+      where: { userId, name },
     });
 
     if (existingPortfolio) {
       return NextResponse.json(
-        { success: false, message: "Portfolio name already exists!" },
+        { success: false, error: "Portfolio name already exists!" },
         { status: 409 }
       );
     }
 
-  
     const portfolio = await prisma.portfolio.create({
-      data: {
-        name: name.trim(),
-        userId: userId,
-      },
-      include: {
-        investments: true,
-      },
+      data: { name, userId },
+      include: { investments: true },
     });
 
     return NextResponse.json(
@@ -95,14 +78,12 @@ export async function POST(request: NextRequest) {
       },
       { status: 201 }
     );
-
   } catch (error) {
-    console.error("Portfolio POST error:", error);  // ← Shows full error
-
+    console.error("Portfolio POST error:", error);
     return NextResponse.json(
       {
         success: false,
-        message: error instanceof Error ? error.message : "Failed creating portfolio",
+        error: error instanceof Error ? error.message : "Failed creating portfolio",
       },
       { status: 500 }
     );

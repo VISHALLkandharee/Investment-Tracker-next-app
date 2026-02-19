@@ -113,6 +113,7 @@ export const authOptions: NextAuthOptions = {
     maxAge: 30 * 24 * 60 * 60, // ✅ ADD: 30 days
   },
 
+
   cookies: {
     sessionToken: {
       name: process.env.NODE_ENV === 'production' 

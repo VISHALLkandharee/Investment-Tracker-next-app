@@ -1,7 +1,11 @@
 // src/lib/services/coinGecko.ts
 import axios from "axios";
+import { cache } from "@/lib/utils/cache";
 
 const BASE_URL = "https://api.coingecko.com/api/v3";
+
+// Cache crypto prices for 2 minutes (CoinGecko free tier is generous)
+const CRYPTO_CACHE_TTL = 120;
 
 export interface CryptoQuote {
   symbol: string;
@@ -12,35 +16,34 @@ export interface CryptoQuote {
   volume: number;
 }
 
-// Simple in-memory cache: symbol -> { price, timestamp }
-const priceCache: { [key: string]: { data: CryptoQuote; timestamp: number } } = {};
-const CACHE_DURATION = 60 * 1000; // 1 minute
-
+/**
+ * Fetch prices for multiple crypto symbols in a single batch request.
+ * Uses the centralized cache service for caching.
+ */
 export async function getCryptoPrices(symbols: string[]): Promise<{ [symbol: string]: CryptoQuote | null }> {
   const uniqueSymbols = [...new Set(symbols.map(s => s.toUpperCase()))];
   const result: { [symbol: string]: CryptoQuote | null } = {};
   const symbolsToFetch: string[] = [];
 
-  // Check cache first
-  const now = Date.now();
+  // 1. Check cache first for each symbol
   for (const symbol of uniqueSymbols) {
-    const cached = priceCache[symbol];
-    if (cached && now - cached.timestamp < CACHE_DURATION) {
-      result[symbol] = cached.data;
+    const cacheKey = `crypto_price_${symbol}`;
+    const cached = cache.get<CryptoQuote>(cacheKey);
+    if (cached) {
+      result[symbol] = cached;
     } else {
       symbolsToFetch.push(symbol);
     }
   }
 
+  // All symbols were cached
   if (symbolsToFetch.length === 0) {
     return result;
   }
 
+  // 2. Fetch uncached symbols from API
   try {
-    // Convert symbols to CoinGecko IDs
     const coinIds = symbolsToFetch.map(symbol => symbolToCoinId(symbol));
-    
-    // Join IDs with commas for the API request
     const idsParam = coinIds.join(",");
 
     const response = await axios.get(`${BASE_URL}/simple/price`, {
@@ -55,51 +58,61 @@ export async function getCryptoPrices(symbols: string[]): Promise<{ [symbol: str
 
     const data = response.data;
 
-    // Map responses back to symbols
+    // 3. Map responses back to symbols and cache them
     for (let i = 0; i < symbolsToFetch.length; i++) {
-        const symbol = symbolsToFetch[i];
-        const coinId = coinIds[i];
-        const coinData = data[coinId];
+      const symbol = symbolsToFetch[i];
+      const coinId = coinIds[i];
+      const coinData = data[coinId];
 
-        if (coinData) {
-            const quote: CryptoQuote = {
-                symbol: symbol,
-                price: coinData.usd,
-                change24h: coinData.usd_24h_change || 0,
-                changePercent24h: coinData.usd_24h_change || 0,
-                marketCap: coinData.usd_market_cap || 0,
-                volume: coinData.usd_24h_vol || 0,
-            };
-            result[symbol] = quote;
-            priceCache[symbol] = { data: quote, timestamp: now };
-        } else {
-            console.warn(`No data found for crypto: ${symbol} (ID: ${coinId})`);
-            result[symbol] = null;
-        }
+      if (coinData) {
+        const quote: CryptoQuote = {
+          symbol: symbol,
+          price: coinData.usd,
+          change24h: coinData.usd_24h_change || 0,
+          changePercent24h: coinData.usd_24h_change || 0,
+          marketCap: coinData.usd_market_cap || 0,
+          volume: coinData.usd_24h_vol || 0,
+        };
+        result[symbol] = quote;
+        cache.set(`crypto_price_${symbol}`, quote, CRYPTO_CACHE_TTL);
+      } else {
+        console.warn(`CoinGecko: No data found for crypto: ${symbol} (ID: ${coinId})`);
+        result[symbol] = null;
+      }
     }
-
   } catch (error) {
-    console.error(`Error fetching crypto prices for ${symbolsToFetch.join(", ")}:`, error);
-    // return whatever we have from cache, others null
+    console.error(`CoinGecko: Error fetching prices for ${symbolsToFetch.join(", ")}:`, error);
+    // Return whatever we have from cache, the rest will be null
   }
-  
+
   return result;
 }
 
+/**
+ * Fetch a single crypto price. Internally uses the batch function.
+ */
 export async function getCryptoPrice(symbol: string): Promise<CryptoQuote | null> {
-    const prices = await getCryptoPrices([symbol]);
-    return prices[symbol.toUpperCase()] || null;
+  const prices = await getCryptoPrices([symbol]);
+  return prices[symbol.toUpperCase()] || null;
 }
 
 export async function searchCrypto(query: string) {
+  const cacheKey = `crypto_search_${query.toLowerCase()}`;
+
+  const cached = cache.get<unknown[]>(cacheKey);
+  if (cached) return cached;
+
   try {
     const response = await axios.get(`${BASE_URL}/search`, {
       params: { query },
     });
 
-    return response.data.coins || [];
+    const results = response.data.coins || [];
+    cache.set(cacheKey, results, 600); // 10 min cache for search
+
+    return results;
   } catch (error) {
-    console.error("Error searching crypto:", error);
+    console.error("CoinGecko: Error searching crypto:", error);
     return [];
   }
 }
